@@ -1,176 +1,82 @@
-import os
 from pulp import *
-solver_path = "C:\\x64_win64\\cplex.exe" 
-timeLimit = 300 
-model = LpProblem("RailYardScheduling", LpMinimize) 
-
-I_max = 5 
-O_max = 5 
-B_max = 5 
-K_max = 5 
-T_max = 120 
-T = range(1, T_max+1) 
-N_RK_max = 100 
-Tmin = 15 
-R_PRI = 4 
-R_OTP = 3 
-N_OV_max = 100 
-N_OV_min = 50 
-mi = 0.50 
-H_RI = 5 
-H_TP = 15 
-H_FJ = 10 
-M = 10000 
-I = range(1, I_max+1) 
-O = range(1, O_max+1) 
-B = range(1, B_max+1) 
-K = range(1, K_max+1) 
-T = range(0, T_max+1) 
-
-T_PRI = {1: 10, 2: 20, 3: 30, 4: 40, 5: 50} 
-T_OTP = {1: 70, 2: 80, 3: 90, 4: 100, 5: 110} 
-H_RJ = {1: 20, 2: 25, 3: 15, 4: 22, 5: 30} 
-
-N_IT = {
-    (1,1): 10, (2,1): 15, (3,1): 5, (4,1): 8, (5,1): 12,
-    (1,2): 8, (2,2): 12, (3,2): 10, (4,2): 6, (5,2): 14,
-    (1,3): 15, (2,3): 5, (3,3): 12, (4,3): 10, (5,3): 8,
-    (1,4): 6, (2,4): 14, (3,4): 9, (4,4): 11, (5,4): 10,
-    (1,5): 12, (2,5): 10, (3,5): 8, (4,5): 7, (5,5): 13
-}
-
-A_init = {1: 5, 2: 8, 3: 6, 4: 7, 5: 4} 
-
-PHIkb = {
-    (1,1): 1, (1,2): 0, (1,3): 0, (1,4): 0, (1,5): 0,
-    (2,1): 0, (2,2): 1, (2,3): 0, (2,4): 0, (2,5): 0,
-    (3,1): 0, (3,2): 0, (3,3): 1, (3,4): 0, (3,5): 0,
-    (4,1): 0, (4,2): 0, (4,3): 0, (4,4): 1, (4,5): 0,
-    (5,1): 0, (5,2): 0, (5,3): 0, (5,4): 0, (5,5): 1
-} 
-
-sigmabt = {
-    (1,70): 1, (2,70): 0, (3,70): 0, (4,70): 0, (5,70): 0,
-    (1,80): 0, (2,80): 1, (3,80): 0, (4,80): 0, (5,80): 0,
-    (1,90): 0, (2,90): 0, (3,90): 1, (4,90): 0, (5,90): 0,
-    (1,100): 0, (2,100): 0, (3,100): 0, (4,100): 1, (5,100): 0,
-    (1,110): 0, (2,110): 0, (3,110): 0, (4,110): 0, (5,110): 1
-} 
-
-tau_s = LpVariable.dicts("tau_s", I, lowBound=1, upBound=T_max)
-tau_e = LpVariable.dicts("tau_e", I, lowBound=1, upBound=T_max)
-sii = LpVariable.dicts("s", (I, I), 0, 1, cat="Binary")
-xit = LpVariable.dicts("x", (I, T), 0, 1, cat="Binary") 
-Akt = LpVariable.dicts("Akt", (K, T), lowBound=0) 
-At = LpVariable.dicts("At", T, lowBound=0) 
-Dkt = LpVariable.dicts("D", (K, T), lowBound=0) 
-Dt = LpVariable.dicts("Dt", T, lowBound=0) 
-ykt = LpVariable.dicts("y", (K, T), 0, 1, cat="Binary") 
-fu = LpVariable.dicts("fu", (B, T), lowBound=0)
-fiz = LpVariable.dicts("fiz", (B, T), lowBound=0)
-T_dep = list(T_OTP.values())
-diz = LpVariable.dicts("diz", (B, T_dep), lowBound=0) 
-nod = LpVariable.dicts("nod", O, lowBound=0, cat="Integer")
-stbt = LpVariable.dicts("stbt", (B, T), lowBound=0, cat="Integer") 
-
-for t in T: 
-    model += At[t] == lpSum(N_IT[b, i] for i in I if T_PRI[i] <= t for b in B) 
-
-for t in T: 
-    model += Dt[t] == lpSum(diz[b][tprim] for b in B for tprim in T_dep if tprim <= t) 
-
-model += lpSum(At[t] - Dt[t] for t in T) 
-
-for i in I: 
-    model += tau_s[i] >= T_PRI[i] + H_TP 
-
-for i in I: 
-    for j in I: 
-        if i < j: 
-            model += tau_s[j] >= tau_e[i] + H_RI - M*(1 - sii[i][j]) 
-            model += tau_s[i] >= tau_e[j] + H_RI - M*(sii[i][j]) 
-
-for k in K: 
-    for t in T[1:]: 
-        model += Akt[k][t] >= Akt[k][t-1] + lpSum(xit[i][t] * lpSum(N_IT.get((b,i),0) * PHIkb[(k,b)] for b in B) for i in I) 
-
-for i in I: 
-    model += tau_e[i] == lpSum(xit[i][t]*t for t in T) 
-
-for i in I: 
-    model += lpSum(xit[i][t] for t in T) <= 1 
-
-for i in I: 
-    for t in T: 
-        if t < T_PRI[i]+H_TP: 
-            model += xit[i][t] == 0 
-
-for k in K: 
-    for t in T: 
-        model += Akt[k][t] - Dkt[k][t] <= N_RK_max 
-
-for t in T: 
-    if t + H_FJ - 1 <= T_max: 
-        model += lpSum(ykt[k][tprim] for k in K for tprim in range(t, t+H_FJ)) <= 1 
-
-for k in K: 
-    for t in T: 
-        if t >= 1: 
-            model += Dkt[k][t]-Dkt[k][t-1] <= N_RK_max*ykt[k][t] 
-
-for k in K: 
-    for t in T: 
-        if t >= 1: 
-            model += Dkt[k][t]-Dkt[k][t-1] <= Akt[k][t-1]-Dkt[k][t-1] 
-
-for b in B: 
-    for t in T: 
-        if t >= 1: 
-            model += fu[b][t] == lpSum((Dkt[k][t]-Dkt[k][t-1])*PHIkb.get((k,b), 0) for k in K) 
-
-for b in B: 
-    for t in T[H_FJ:]: 
-        model += fiz[b][t] <= fu[b][t - H_FJ] 
-
-for b in B: 
-    for t in T_dep: 
-        if t-1 in T:
-            model += fiz[b][t]+stbt[b][t-1] == stbt[b][t]+diz[b][t] 
-
-for b in B: 
-    for t in T[H_FJ:]: 
-        model += fiz[b][t] <= N_RK_max * lpSum(ykt[k][t-H_FJ]*PHIkb.get((k,b), 0) for k in K) 
-
-for b in B: 
-    for t in T_dep: 
-        model += diz[b][t] <= N_OV_max * sigmabt[(b,t)] 
-
-for o in O: 
-    t = T_OTP[o] 
-    model += nod[o] == lpSum(diz[b][t] for b in B) 
-
-for o in O: 
-    model += nod[o] <= N_OV_max 
-
-for o in O: 
-    model += nod[o] >= N_OV_max*mi 
-
-model.writeLP("modelMultiLevelClass.txt") 
-
-if os.path.exists(solver_path): 
-    if "cplex" in solver_path: 
-        model.solve(apis.CPLEX_CMD(path=solver_path, timeLimit=timeLimit)) 
-    elif "scip" in solver_path: 
-        model.solve(apis.SCIP_CMD(path=solver_path, timeLimit=timeLimit)) 
-        print("Solving with: cbc")
-else: 
+import os
+solver_path = "C:\\x64_win64\\cplex.exe"
+timeLimit = 300
+n = ["1111", "1112", "1113"]
+m = ["1000", "1002", "1003"]
+ai = {"1111": 10, "1112": 50, "1113": 150}
+ti = {"1111": 30, "1112": 30, "1113": 30}
+dj = {"1000": 100, "1002": 160, "1003": 250}
+hi = {"1111": 5, "1112": 5, "1113": 5}
+ui = {"1111": ["A", "B", "C"], "1112": ["D", "E"], "1113": ["F", "G"]}
+uj = {"1000": ["C", "D"], "1002": ["A", "B"], "1003": ["E", "F", "G"]}
+U = ["A", "B", "C", "D", "E", "F", "G"]
+ju = {"1000": ["A","D","E","F","G"], "1002": ["A","B","D","E","F","G"], "1003": ["B","C","D","E","F","G"]}
+F = ["r","w","l"]
+efu = {("r", "A"): 10,("w","A"): 1250, ("l","A"): 150, ("r", "B"): 20, ("w","B"):2350, ("l","B"):300, ("r", "C"):15, ("w","C"):1750, ("l","C"):225, ("r", "D"): 10, ("w","D"):1250,("l","D"):150, ("r","E"):20,("w","E"):3350, ("l","E"):300, ("r","F"):20, ("w","F"):2250, ("l","F"):300, ("r","G"):20, ("w","G"):2550, ("l","G"):300}
+t = {"A": [30], "B":[30], "C":[30], "D":[30], "E":[30], "F":[30], "G":[30]}
+bvj = {"1000": 20, "1002": 20, "1003": 20}
+gjf = {("1000","r"): 2000, ("1000","w"): 2000, ("1000","l"): 2000, ("1002", "r"): 2000, ("1002", "w"): 2000, ("1002", "l"): 2000, ("1003", "r"): 2000, ("1003", "w"):2000, ("1003", "l"):2000}
+pjf = {("1000","r"): 20, ("1000","w"): 20, ("1000","l"): 20, ("1002", "r"): 20, ("1002", "w"): 20, ("1002", "l"): 20, ("1003", "r"): 20, ("1003", "w"):20, ("1003", "l"):20}
+cju = {("1000", "A"): 100, ("1000", "B"): 100, ("1000", "C"): 100, ("1000", "D"): 100, ("1000", "E"): 200, ("1000", "F"): 250, ("1000", "G"): 290, ("1002", "A"): 300, ("1002", "B"): 300, ("1002", "C"): 300, ("1002", "D"): 300, ("1002", "E"): 300, ("1002", "F"): 300, ("1002", "G"): 300, ("1003", "A"): 300, ("1003", "B"): 300, ("1003", "C"): 300, ("1003", "D"): 300, ("1003", "E"): 300, ("1003", "F"): 300, ("1003", "G"): 300}
+oj = {"1000": 10, "1002": 20, "1003": 30}
+K = [1,2,3]
+L = [1,2,3]
+M = 1000
+T = 25
+Pik = LpVariable.dicts("Pik", [(i,k) for i in n for k in K], 0, 1, LpBinary)
+Qjl = LpVariable.dicts("Qjl", [(j,l) for j in m for l in L], 0,1, LpBinary)
+Xju = LpVariable.dicts("Xju", [(j,u) for j in m for u in U], 0, 1, LpBinary)
+Yj = LpVariable.dicts("Yj", [(j) for j in m], 0,1, LpBinary)
+Dlk = LpVariable.dicts("Dlk", [(l,k) for l in L for k in K], 0,1, LpBinary)
+ROjf = LpVariable.dicts("ROjf", [(j,f) for j in m for f in F], 0,1,LpBinary)
+Rk = LpVariable.dicts("Rk", K, lowBound=0)
+Sl = LpVariable.dicts("Sl", L, lowBound=0)
+model = LpProblem("Railcar_yards", LpMinimize)
+model += (lpSum(cju[(j, u)]*Xju[(j, u)] for j in m for u in U) - lpSum(oj[(j)]*Yj[(j)] for j in m))
+for k in K[1:]:
+    model += (Rk[k] >= Rk[k-1] + lpSum(hi[i] * Pik[(i,k)] for i in n))
+for k in K:
+    model += (Rk[k] - lpSum((ai[(i)]+ti[(i)])*Pik[(i,k)] for i in n) >= 0)
+for k in K:
+    model += (lpSum(Pik[(i,k)] for i in n) == 1)
+for i in n:
+    model += (lpSum(Pik[(i,k)] for k in K) == 1)
+for k in K:
+    for l in L:
+        model += (Sl[l] - Rk[k] - lpSum(hi[(i)]*Pik[(i,k)] for i in n) - T >= M*(Dlk[(l,k)]-1))
+for k in K:
+    for i in n:
+        for j in m:
+            for l in L:
+                model += (M*(Dlk[(l,k)]+2 - Pik[(i,k)] - Qjl[(j,l)]) >= lpSum(Xju[(j,u)] for u in U if u in ui[i] and u in uj[j]))
+for l in L[:-1]:
+    model += (Sl[l+1]- Sl[l] - lpSum(bvj[j]*Qjl[(j,l)] for j in m)>= 0)
+for l in L[:-1]:
+    model += (Sl[l] <= lpSum((dj[(j)] - bvj[j] - bvj[j])*Qjl[(j,l)] for j in m) + M*(1-lpSum(Qjl[(j,l)] for j in m)))
+for j in m:
+    model += (lpSum(Qjl[(j,l)] for l in L) == Yj[j])
+for l in L:
+    model += (lpSum(Qjl[(j,l)] for j in m) == 1)
+for u in U:
+    model += (lpSum(Xju[(j,u)] for j in ju) == 1)
+for j in m:
+    for f in F:
+        model += (lpSum(efu[(f,u)]*Xju[(j,u)] for u in U) >= pjf[(j,f)]*ROjf[(j,f)])
+for j in m:
+    model += (lpSum(ROjf[(j,f)] for f in F) >= Yj[(j)])
+if os.path.exists(solver_path):
+    if "cplex" in solver_path:
+        model.solve(apis.CPLEX_CMD(path=solver_path, timeLimit=timeLimit))
+    elif "scip" in solver_path:
+        model.solve(apis.SCIP_CMD(path=solver_path, timeLimit=timeLimit))
+else:
     model.solve(pulp.PULP_CBC_CMD(timeLimit=timeLimit))
-    print("Solving with: cbc") 
-
-for v in model.variables(): 
-    if v.varValue is not None and abs(v.varValue) > 1e-6: 
-        print(v.name, "=", v.varValue) 
-
-print("=== MODEL INFO ===") 
-print("Broj promenljivih:", len(model.variables())) 
+print("Status: ", LpStatus[model.status])
+model.writeLP('RailCarYards.txt')
+for v in model.variables():
+    if v.varValue is not None and abs(v.varValue) > 1e-6:
+        print(v.name, "=", v.varValue)
+print("===MODEL INFO===")
+print("Broj promenljivih:", len(model.variables()))
 print("Broj ograničenja:", len(model.constraints))
